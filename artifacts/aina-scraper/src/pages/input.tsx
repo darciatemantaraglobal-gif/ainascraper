@@ -28,6 +28,8 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { DuplicateWarning, type DuplicateReport } from '@/components/DuplicateWarning';
+import { Switch } from '@/components/ui/switch';
+import { Sparkles } from 'lucide-react';
 
 const urlSchema = z.object({ url: z.string().url('URL tidak valid') });
 const manualSchema = z.object({ 
@@ -57,6 +59,12 @@ const instagramSchema = z.object({
 
 export default function InputPage() {
   const [_, setLocation] = useLocation();
+  /**
+   * Rapikan otomatis dengan AI saat scrape.
+   * Default AKTIF — hasil scrape mentah penuh sampah navigasi dan sulit
+   * dipakai AINA. Teks aslinya tetap disimpan, jadi tidak ada yang hilang.
+   */
+  const [autoFormat, setAutoFormat] = useState(true);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [instaError, setInstaError] = useState<{ is503: boolean; message: string } | null>(null);
   
@@ -108,17 +116,17 @@ export default function InputPage() {
   };
 
   const onUrlSubmit = (values: z.infer<typeof urlSchema>) => {
-    scrapeUrlMutation.mutate({ data: { url: values.url } }, { onSuccess, onError });
+    scrapeUrlMutation.mutate({ data: { url: values.url, auto_format: autoFormat } as any }, { onSuccess, onError });
   };
 
   const onManualSubmit = (values: z.infer<typeof manualSchema>) => {
-    scrapeManualMutation.mutate({ data: { title: values.title, text: values.text } }, { onSuccess, onError });
+    scrapeManualMutation.mutate({ data: { title: values.title, text: values.text, auto_format: autoFormat } as any }, { onSuccess, onError });
   };
 
   const onInstaSubmit = (values: z.infer<typeof instagramSchema>) => {
     setInstaError(null);
     scrapeInstaMutation.mutate(
-      { data: { url: values.url } },
+      { data: { url: values.url, auto_format: autoFormat } as any },
       {
         onSuccess: (data) => {
           setInstaError(null);
@@ -189,7 +197,7 @@ export default function InputPage() {
       });
 
       scrapePdfMutation.mutate(
-        { data: { filename: pdfFile.name, content_base64: base64 } },
+        { data: { filename: pdfFile.name, content_base64: base64, auto_format: autoFormat } as any },
         { onSuccess, onError },
       );
     } catch (err) {
@@ -263,6 +271,21 @@ export default function InputPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold font-heading mb-2">Input Pengetahuan</h1>
         <p className="text-muted-foreground">Pilih metode input untuk memasukkan artikel ke dalam draft.</p>
+      </div>
+
+      {/* Saklar rapikan otomatis — berlaku untuk semua metode input */}
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card/60 p-3 mb-4">
+        <div className="flex items-start gap-2.5 min-w-0">
+          <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Rapikan otomatis dengan AI</p>
+            <p className="text-xs text-muted-foreground">
+              Buang sampah scraping & tulis ulang mengikuti gaya Knowledge Base AINA.
+              Teks aslinya tetap disimpan dan bisa dibandingkan.
+            </p>
+          </div>
+        </div>
+        <Switch checked={autoFormat} onCheckedChange={setAutoFormat} />
       </div>
 
       <Tabs defaultValue="url" className="w-full">

@@ -345,6 +345,10 @@ function toDraftResponse(d: typeof scraperDraftsTable.$inferSelect) {
     source_url: d.sourceUrl,
     source_type: d.sourceType,
     relevance_score: d.relevanceScore,
+    // Teks scrape mentah + penanda apakah content sudah ditulis ulang AI.
+    // Dipakai editor draft untuk tombol "Lihat teks asli".
+    raw_content: d.rawContent,
+    ai_formatted: d.aiFormatted,
     status: d.status,
     submitted_by: d.submittedBy,
     rejection_reason: d.rejectionReason,

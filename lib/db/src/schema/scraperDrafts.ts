@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, uuid, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -6,6 +6,22 @@ export const scraperDraftsTable = pgTable("scraper_drafts", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
   content: text("content").notNull(),
+
+  /**
+   * Teks ASLI hasil scraping, sebelum dirapikan AI.
+   *
+   * KENAPA WAJIB ADA: kalau "Rapikan otomatis" aktif, AI menimpa `content`.
+   * Tanpa salinan mentah ini, teks asli HILANG SELAMANYA — dan kalau AI
+   * diam-diam membuang biaya/alamat/syarat dokumen, tidak ada yang bisa
+   * mengeceknya lagi. Kontributor bisa membandingkan lewat tombol
+   * "Lihat teks asli" di editor draft.
+   *
+   * NULL berarti draft ini tidak pernah dirapikan (content = teks asli).
+   */
+  rawContent: text("raw_content"),
+
+  /** true kalau `content` adalah hasil tulisan ulang AI, bukan teks scrape mentah. */
+  aiFormatted: boolean("ai_formatted").notNull().default(false),
   summary: text("summary"),
   tags: text("tags"),
   category: text("category"),

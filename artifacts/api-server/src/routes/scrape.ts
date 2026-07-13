@@ -5,6 +5,8 @@ import { ScrapeUrlBody, ScrapeManualBody, ScrapePdfBody, ScrapeInstagramBody } f
 import { requireAuth } from "../middlewares/auth";
 import { analyzeWithOpenRouter, fetchAndExtractUrl, scrapeInstagramPost, ocrImageWithOpenRouter, IG_MAX_OCR_SLIDES } from "../lib/scrapeUtils";
 import { findDuplicates } from "../lib/dedupe";
+import { reformatForAina, type ReformatStyle } from "../lib/reformat";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -19,6 +21,10 @@ function toDraftResponse(d: typeof scraperDraftsTable.$inferSelect) {
     source_url: d.sourceUrl,
     source_type: d.sourceType,
     relevance_score: d.relevanceScore,
+    // Teks scrape mentah + penanda apakah content sudah ditulis ulang AI.
+    // Dipakai editor draft untuk tombol "Lihat teks asli".
+    raw_content: d.rawContent,
+    ai_formatted: d.aiFormatted,
     status: d.status,
     submitted_by: d.submittedBy,
     rejection_reason: d.rejectionReason,
@@ -27,6 +33,81 @@ function toDraftResponse(d: typeof scraperDraftsTable.$inferSelect) {
 }
 
 // Scrape from URL — fetch konten asli dari URL
+
+/**
+ * Rapikan otomatis saat scrape.
+ *
+ * Default AKTIF (bisa dimatikan lewat env AUTO_FORMAT_ON_SCRAPE=false, atau
+ * per-request lewat body { auto_format: false }).
+ *
+ * PENTING — teks asli TIDAK dibuang:
+ *   content      = hasil rapikan AI
+ *   raw_content  = teks scrape mentah
+ * Kontributor bisa membandingkan lewat "Lihat teks asli" di editor draft.
+ * Tanpa ini, kalau AI diam-diam membuang biaya/alamat, tidak ada jalan pulang.
+ *
+ * Kalau AI gagal, kita PAKAI TEKS ASLI apa adanya — scrape tidak boleh gagal
+ * hanya karena fitur rapikan bermasalah.
+ */
+const AUTO_FORMAT_DEFAULT = process.env["AUTO_FORMAT_ON_SCRAPE"] !== "false";
+
+interface Tidied {
+  title: string;
+  content: string;
+  rawContent: string | null;
+  summary: string | null;
+  tags: string | null;
+  category: string | null;
+  aiFormatted: boolean;
+}
+
+async function autoTidy(
+  req: { body?: unknown },
+  input: { title: string; content: string; sourceUrl?: string | null },
+): Promise<Tidied> {
+  const body = (req.body ?? {}) as { auto_format?: boolean; format_style?: string };
+  const enabled = body.auto_format ?? AUTO_FORMAT_DEFAULT;
+
+  const untouched: Tidied = {
+    title: input.title,
+    content: input.content,
+    rawContent: null,
+    summary: null,
+    tags: null,
+    category: null,
+    aiFormatted: false,
+  };
+
+  if (!enabled) return untouched;
+
+  try {
+    const r = await reformatForAina({
+      title: input.title,
+      content: input.content,
+      sourceUrl: input.sourceUrl ?? null,
+      style: (body.format_style as ReformatStyle) ?? "auto",
+    });
+
+    // AI gagal -> reformatForAina mengembalikan ai_used:false. Jangan pura-pura
+    // sudah dirapikan; simpan versi bersihnya tapi tandai dengan jujur.
+    return {
+      title: r.title,
+      content: r.content,
+      rawContent: input.content, // teks asli SELALU disimpan
+      summary: r.summary || null,
+      tags: r.keywords || null,
+      category: r.category,
+      aiFormatted: r.ai_used,
+    };
+  } catch (err) {
+    logger.error(
+      { err: (err as Error).message },
+      "[scrape] Rapikan otomatis gagal - memakai teks scrape apa adanya",
+    );
+    return untouched;
+  }
+}
+
 router.post("/scrape/url", requireAuth, async (req, res): Promise<void> => {
   const user = req.user!;
   const parsed = ScrapeUrlBody.safeParse(req.body);
@@ -55,14 +136,26 @@ router.post("/scrape/url", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const { summary, tags, relevanceScore, aiUsed, aiError } = await analyzeWithOpenRouter(extractedText, pageTitle);
+  // Rapikan DULU, baru analisis. Skor relevansi dihitung dari teks yang sudah
+  // bersih -> jauh lebih akurat daripada dari HTML mentah penuh menu navigasi.
+  const tidy = await autoTidy(req, {
+    title: pageTitle,
+    content: extractedText || `Konten dari ${rawUrl}`,
+    sourceUrl: parsed.data.url,
+  });
+
+  const { summary, tags, relevanceScore, aiUsed, aiError } =
+    await analyzeWithOpenRouter(tidy.content, tidy.title);
   const status = relevanceScore <= 50 ? "rejected" : "draft";
 
   const [draft] = await db.insert(scraperDraftsTable).values({
-    title: pageTitle,
-    content: extractedText || `Konten dari ${rawUrl}`,
-    summary,
-    tags,
+    title: tidy.title,
+    content: tidy.content,
+    rawContent: tidy.rawContent,
+    aiFormatted: tidy.aiFormatted,
+    summary: tidy.summary ?? summary,
+    tags: tidy.tags ?? tags,
+    category: tidy.category,
     sourceUrl: parsed.data.url,
     sourceType: "url",
     relevanceScore,
@@ -99,14 +192,20 @@ router.post("/scrape/manual", requireAuth, async (req, res): Promise<void> => {
   }
 
   const title = parsed.data.title || "Draft Manual " + new Date().toLocaleDateString("id-ID");
-  const { summary, tags, relevanceScore, aiUsed, aiError } = await analyzeWithOpenRouter(parsed.data.text, title);
+  const tidy = await autoTidy(req, { title, content: parsed.data.text });
+
+  const { summary, tags, relevanceScore, aiUsed, aiError } =
+    await analyzeWithOpenRouter(tidy.content, tidy.title);
   const status = relevanceScore <= 50 ? "rejected" : "draft";
 
   const [draft] = await db.insert(scraperDraftsTable).values({
-    title,
-    content: parsed.data.text,
-    summary,
-    tags,
+    title: tidy.title,
+    content: tidy.content,
+    rawContent: tidy.rawContent,
+    aiFormatted: tidy.aiFormatted,
+    summary: tidy.summary ?? summary,
+    tags: tidy.tags ?? tags,
+    category: tidy.category,
     sourceType: "manual",
     relevanceScore,
     status,
@@ -159,14 +258,20 @@ router.post("/scrape/pdf", requireAuth, async (req, res): Promise<void> => {
   }
 
   const content = extractedText.substring(0, 8000);
-  const { summary, tags, relevanceScore, aiUsed, aiError } = await analyzeWithOpenRouter(content, pdfTitle);
+  const tidy = await autoTidy(req, { title: pdfTitle, content });
+
+  const { summary, tags, relevanceScore, aiUsed, aiError } =
+    await analyzeWithOpenRouter(tidy.content, tidy.title);
   const status = relevanceScore <= 50 ? "rejected" : "draft";
 
   const [draft] = await db.insert(scraperDraftsTable).values({
-    title: pdfTitle,
-    content,
-    summary,
-    tags,
+    title: tidy.title,
+    content: tidy.content,
+    rawContent: tidy.rawContent,
+    aiFormatted: tidy.aiFormatted,
+    summary: tidy.summary ?? summary,
+    tags: tidy.tags ?? tags,
+    category: tidy.category,
     sourceType: "pdf",
     relevanceScore,
     status,
@@ -272,14 +377,20 @@ router.post("/scrape/instagram", requireAuth, async (req, res): Promise<void> =>
   const igTitle = firstLine
     ? `${firstLine.slice(0, 120)}${firstLine.length > 120 ? "…" : ""}`
     : `Postingan IG @${username || "instagram"}`;
-  const { summary, tags, relevanceScore, aiUsed, aiError } = await analyzeWithOpenRouter(content, igTitle);
+  const tidy = await autoTidy(req, { title: igTitle, content, sourceUrl: postUrl });
+
+  const { summary, tags, relevanceScore, aiUsed, aiError } =
+    await analyzeWithOpenRouter(tidy.content, tidy.title);
   const status = relevanceScore <= 50 ? "rejected" : "draft";
 
   const [draft] = await db.insert(scraperDraftsTable).values({
-    title: igTitle,
-    content,
-    summary,
-    tags,
+    title: tidy.title,
+    content: tidy.content,
+    rawContent: tidy.rawContent,
+    aiFormatted: tidy.aiFormatted,
+    summary: tidy.summary ?? summary,
+    tags: tidy.tags ?? tags,
+    category: tidy.category,
     sourceUrl: postUrl, // sudah dinormalisasi: tanpa ?igsh=, ?utm_, dll
     sourceType: "instagram",
     relevanceScore,

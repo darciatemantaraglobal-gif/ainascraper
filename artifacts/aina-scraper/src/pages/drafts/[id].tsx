@@ -390,6 +390,14 @@ export default function DraftDetailPage() {
                           <TabsList className="mb-2">
                             <TabsTrigger value="edit">Edit</TabsTrigger>
                             <TabsTrigger value="preview">Pratinjau</TabsTrigger>
+                            {/*
+                              Tab ini hanya muncul kalau draft PERNAH dirapikan AI.
+                              Gunanya: memastikan AI tidak diam-diam membuang biaya,
+                              alamat, atau syarat dokumen yang ada di teks asli.
+                            */}
+                            {(draft as any).raw_content && (
+                              <TabsTrigger value="raw">Teks Asli</TabsTrigger>
+                            )}
                           </TabsList>
 
                           <TabsContent value="edit" className="mt-0">
@@ -401,6 +409,21 @@ export default function DraftDetailPage() {
                               />
                             </FormControl>
                           </TabsContent>
+
+                          {(draft as any).raw_content && (
+                            <TabsContent value="raw" className="mt-0">
+                              <div className="mb-2 flex items-center gap-2 text-xs text-amber-500">
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                Ini teks scrape ASLI (sebelum dirapikan AI). Bandingkan —
+                                pastikan tidak ada biaya, alamat, atau syarat yang hilang.
+                              </div>
+                              <Textarea
+                                readOnly
+                                value={(draft as any).raw_content}
+                                className="min-h-[380px] resize-y font-mono text-xs leading-relaxed bg-muted/40 text-muted-foreground"
+                              />
+                            </TabsContent>
+                          )}
 
                           <TabsContent value="preview" className="mt-0">
                             <div className="min-h-[380px] max-h-[380px] overflow-y-auto rounded-lg border border-border bg-muted/20 p-5">
