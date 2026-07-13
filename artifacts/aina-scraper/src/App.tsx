@@ -126,6 +126,9 @@ function AppRoutes() {
             <Route path="/admin/users">
               <ProtectedRoute component={AdminUsersPage} allowedRoles={['admin']} />
             </Route>
+            <Route path="/admin/duplicates">
+              <ProtectedRoute component={AdminDuplicatesPage} allowedRoles={['admin']} />
+            </Route>
             <Route path="/knowledge-base">
               <ProtectedRoute component={KnowledgeBasePage} />
             </Route>
