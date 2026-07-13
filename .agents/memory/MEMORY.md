@@ -1,0 +1,2 @@
+- [esbuild ESM + CJS shim](esbuild-cjs-shim.md) — ESM-format esbuild bundles need a CJS require banner when bundling Express/debug; output lands in dist/src/ not dist/
+- [Drizzle SSL config](drizzle-ssl-conditional.md) — drizzle.config.ts ssl must be conditional on SUPABASE_DB_URL; always-true ssl breaks Replit's built-in PostgreSQL

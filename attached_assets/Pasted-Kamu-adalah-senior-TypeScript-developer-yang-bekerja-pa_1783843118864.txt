@@ -1,0 +1,96 @@
+Kamu adalah senior TypeScript developer yang bekerja pada monorepo ini. Baca seluruh codebase sebelum mulai.
+
+KONTEKS TEKNIS YANG SUDAH ADA:
+- artifacts/aina-scraper/src/pages/admin/users.tsx: halaman manajemen user sudah ada, cek isinya dulu
+- artifacts/api-server/src/routes/users.ts: cek endpoint yang sudah ada
+- lib/db/src/schema/scraperUsers.ts: kolom username, password_hash, role, daily_target
+- lib/api-zod: cek schema UserInput, UserUpdate yang sudah ada
+- Auth: requireAdmin middleware sudah ada
+- bcrypt sudah dipakai di auth.ts — gunakan import yang sama
+
+TUGAS:
+
+1. Di artifacts/api-server/src/routes/users.ts, cek dulu semua endpoint yang sudah ada.
+   Tambahkan hanya yang BELUM ada:
+
+   GET /users (requireAdmin):
+   - Return semua user: [{ username, role, daily_target }]
+   - JANGAN return password_hash
+
+   POST /users (requireAdmin):
+   - Body: { username: string, password: string, role: "contributor" | "admin" }
+   - Validasi: username dan password tidak boleh kosong, role harus valid
+   - Cek duplikat: jika username sudah ada → return 409: { error: "Username sudah digunakan." }
+   - Hash password dengan bcrypt.hash(password, 10)
+   - Insert ke scraper_users
+   - Return 201: { username, role, daily_target }
+
+   PATCH /users/:username (requireAdmin):
+   - Body: { role?: "contributor" | "admin" }
+   - Jika user tidak ditemukan → return 404
+   - Update kolom role
+   - Return: { username, role, daily_target }
+
+   POST /users/:username/reset-password (requireAdmin):
+   - Generate password baru acak: 12 karakter, kombinasi huruf + angka
+     gunakan crypto.randomBytes atau Math.random dengan charset
+   - Hash dengan bcrypt.hash(newPassword, 10)
+   - Update password_hash di scraper_users
+   - Return: { username, new_password: newPassword }
+     (plain text dikembalikan SEKALI ke admin — tidak disimpan)
+   - Jika user tidak ditemukan → return 404
+
+   DELETE /users/:username (requireAdmin):
+   - Jika user tidak ditemukan → return 404
+   - Cegah admin menghapus dirinya sendiri:
+     jika username === req.session.user.username → return 400: { error: "Tidak bisa menghapus akun sendiri." }
+   - Hapus dari scraper_users
+   - Return 204
+
+2. Di artifacts/aina-scraper/src/pages/admin/users.tsx, cek yang sudah ada.
+   Pastikan atau tambahkan semua fitur berikut:
+
+   Daftar user:
+   - Fetch GET /api/users dengan fetch + credentials: 'include'
+   - Tabel kolom: Username, Role (badge: ungu untuk admin, abu untuk contributor), Target Harian, Aksi
+   - Loading skeleton, empty state jika tidak ada user
+
+   Tambah user baru:
+   - Tombol "+ Tambah Anggota" di atas tabel
+   - Saat diklik: buka Dialog (gunakan komponen Dialog dari shadcn/ui yang sudah ada)
+   - Form di dalam dialog: Username (text), Password Awal (text, tampilkan — bukan type password),
+     Role (Select: contributor/admin)
+   - Submit: POST /api/users
+   - Sukses: toast.success("Akun berhasil dibuat"), tutup dialog, refresh daftar
+   - Error 409: tampilkan pesan "Username sudah digunakan." di dalam dialog
+   - Error lain: toast.error(...)
+
+   Edit role:
+   - Tombol "Edit" di setiap baris
+   - Buka Dialog edit dengan username (read-only) dan Select role
+   - Submit: PATCH /api/users/{username}
+   - Sukses: toast.success("Peran berhasil diperbarui"), tutup dialog, refresh daftar
+
+   Reset password:
+   - Tombol "Reset PW" di setiap baris (di samping Edit)
+   - Konfirmasi dengan AlertDialog: "Reset password {username}?"
+   - Submit: POST /api/users/{username}/reset-password
+   - Sukses: tampilkan Dialog khusus dengan teks:
+     "Password baru untuk {username}:"
+     [kotak dengan font mono, teks password, tombol salin]
+     "Catat password ini sekarang. Tidak akan ditampilkan lagi."
+   - Error: toast.error(...)
+
+   Hapus user:
+   - Tombol "Hapus" di setiap baris (warna merah/destructive)
+   - AlertDialog konfirmasi: "Yakin hapus {username}? Akun akan dihapus permanen."
+   - Submit: DELETE /api/users/{username}
+   - Sukses: toast.success("Akun berhasil dihapus"), refresh daftar
+   - Error 400 (hapus diri sendiri): toast.error dengan pesan dari server
+
+PENTING:
+- Jangan ubah endpoint atau halaman dari sesi sebelumnya
+- Jangan return password_hash ke frontend dalam kondisi apapun
+- Gunakan komponen Dialog, AlertDialog, Select, Badge, Skeleton yang sudah ada di project
+- Password reset: plain text hanya muncul sekali di UI, tidak disimpan di state setelah dialog ditutup
+- Setelah selesai jalankan tsc --noEmit untuk semua workspace, pastikan 0 error TypeScript

@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "AINA Knowledge Scraper"
+version = "1.0.0"
+id = "artifacts/aina-scraper"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22002
+
+[services.development]
+run = "pnpm --filter @workspace/aina-scraper run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/aina-scraper", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/aina-scraper/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22002"
+BASE_PATH = "/"

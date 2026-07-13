@@ -1,0 +1,67 @@
+Kamu adalah senior TypeScript developer yang bekerja pada monorepo ini. Baca seluruh codebase sebelum mulai.
+
+KONTEKS TEKNIS YANG SUDAH ADA:
+- artifacts/api-server/src/routes/auth.ts: login dan logout sudah ada, cek isinya dulu
+- artifacts/api-server/src/middlewares/auth.ts: requireAuth dan requireAdmin sudah ada
+- artifacts/aina-scraper/src/contexts/AuthContext.tsx: context auth sudah ada, cek isinya
+- artifacts/aina-scraper/src/App.tsx: routing sudah ada, cek apakah route guard sudah ada
+- artifacts/aina-scraper/src/components/layout/AppLayout.tsx: layout dengan navigasi sudah ada
+- lib/db/src/schema/scraperUsers.ts: kolom password_hash sudah ada
+- lib/api-zod: cek apakah schema untuk change password sudah ada atau belum
+
+TUGAS:
+
+1. Di artifacts/api-server/src/routes/auth.ts, cek dulu endpoint yang sudah ada.
+   Tambahkan hanya yang BELUM ada:
+
+   POST /auth/change-password (requireAuth):
+   - Body: { old_password: string, new_password: string, confirm_password: string }
+   - Validasi urutan:
+     1. Jika confirm_password !== new_password → return 400: { error: "Konfirmasi password tidak sama." }
+     2. Ambil user dari DB WHERE username = req.session.user.username
+     3. Verifikasi old_password dengan bcrypt.compare → jika salah → return 400: { error: "Password lama tidak sesuai." }
+     4. Hash new_password dengan bcrypt.hash(new_password, 10)
+     5. Update kolom password_hash di scraper_users
+   - Return 200: { message: "Password berhasil diubah." }
+
+2. Di artifacts/aina-scraper/src/App.tsx:
+   Cek apakah route guard (redirect ke /login jika belum auth) sudah ada.
+   Jika BELUM ada, tambahkan komponen ProtectedRoute:
+   - Baca status auth dari AuthContext
+   - Jika loading → tampilkan spinner atau null
+   - Jika tidak terautentikasi → <Navigate to="/login" replace />
+   - Jika terautentikasi → render children
+   Wrap semua route kecuali /login dengan ProtectedRoute.
+   Jika sudah ada, tidak perlu diubah.
+
+3. Buat halaman baru artifacts/aina-scraper/src/pages/change-password.tsx:
+   - Form dengan 3 field: "Password Lama", "Password Baru", "Konfirmasi Password Baru"
+   - Semua field type="password"
+   - Tombol "Simpan Perubahan" — disabled saat loading
+   - Submit: POST /api/auth/change-password dengan { old_password, new_password, confirm_password }
+     gunakan fetch biasa dengan credentials: 'include'
+   - Sukses (200): tampilkan toast.success("Password berhasil diubah."), kosongkan semua field
+   - Error 400 dari server: tampilkan pesan error dari response.error di bawah form (bukan toast)
+     — ini penting agar user tahu apakah old_password salah atau confirm tidak cocok
+   - Error lain: toast.error("Terjadi kesalahan. Coba lagi.")
+   - Gunakan Card + komponen form yang sudah ada di project
+   - Validasi confirm_password di frontend sebelum submit: jika tidak cocok tampilkan pesan langsung
+
+4. Di artifacts/aina-scraper/src/App.tsx:
+   Tambahkan route /change-password yang render halaman change-password.tsx
+   (di dalam ProtectedRoute jika sudah ada)
+
+5. Di artifacts/aina-scraper/src/components/layout/AppLayout.tsx:
+   Tambahkan link "Ganti Password" yang bisa diakses dari navigasi:
+   - Tempatkan di dropdown atau menu profil di pojok kanan atas (cek struktur yang sudah ada)
+   - Jika sudah ada tombol/menu profil, tambahkan item menu "Ganti Password" → navigate ke /change-password
+   - Jika belum ada menu profil, tambahkan ikon user (lucide-react: UserCircle) di kanan atas
+     yang saat diklik menampilkan dropdown dengan 2 item: "Ganti Password" dan "Keluar"
+   - "Keluar" harus tetap berfungsi seperti sebelumnya
+
+PENTING:
+- Jangan ubah logika login, logout, atau session yang sudah ada
+- Jangan ubah requireAuth, requireAdmin di middlewares/auth.ts
+- Jangan ubah halaman lain yang sudah selesai di sesi sebelumnya
+- Gunakan komponen yang sudah ada: Card, Input, Button, toast dari sonner
+- Setelah selesai jalankan tsc --noEmit untuk semua workspace, pastikan 0 error TypeScript
