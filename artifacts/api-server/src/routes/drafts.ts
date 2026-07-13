@@ -16,6 +16,7 @@ import {
 import { requireAuth, requireAdmin } from "../middlewares/auth";
 import { processAndStoreArticle } from "../lib/contentProcessor";
 import { classifyKbCategory } from "../lib/scrapeUtils";
+import { reformatForAina, REFORMAT_STYLES, type ReformatStyle } from "../lib/reformat";
 import { SCRAPER_AUTHOR_ID } from "../lib/env";
 import { logger } from "../lib/logger";
 
@@ -160,6 +161,57 @@ router.delete("/drafts/:id", requireAuth, async (req, res): Promise<void> => {
 });
 
 // Submit draft for admin review
+/**
+ * POST /drafts/:id/reformat
+ *
+ * Merapikan hasil scraping dengan AI, mengikuti GAYA ARTIKEL ASLI di
+ * knowledge_base AINA (few-shot dari artikel yang sudah ada).
+ *
+ * Ini TIDAK langsung menyimpan. Hasilnya dikembalikan sebagai usulan, lalu
+ * kontributor meninjau di editor dan menekan "Terapkan". Merapikan otomatis
+ * tanpa persetujuan manusia terlalu berisiko — AI bisa saja membuang detail
+ * penting (biaya, alamat, syarat) yang justru paling dicari mahasiswa.
+ */
+router.post("/drafts/:id/reformat", requireAuth, async (req, res): Promise<void> => {
+  const user = req.user!;
+  const id = String(req.params["id"]);
+
+  const [draft] = await db
+    .select()
+    .from(scraperDraftsTable)
+    .where(eq(scraperDraftsTable.id, id));
+
+  if (!draft) {
+    res.status(404).json({ error: "Draft tidak ditemukan." });
+    return;
+  }
+
+  // Kontributor hanya boleh merapikan draft miliknya sendiri.
+  if (user.role !== "admin" && draft.submittedBy !== user.username) {
+    res.status(403).json({ error: "Ini bukan draft kamu." });
+    return;
+  }
+
+  const styleRaw = (req.body as { style?: string })?.style ?? "auto";
+  const style = (REFORMAT_STYLES as readonly string[]).includes(styleRaw)
+    ? (styleRaw as ReformatStyle)
+    : "auto";
+
+  try {
+    const result = await reformatForAina({
+      title: draft.title,
+      content: draft.content,
+      sourceUrl: draft.sourceUrl,
+      style,
+    });
+
+    res.json(result);
+  } catch (err) {
+    logger.error({ err, draftId: id }, "[reformat] Gagal");
+    res.status(500).json({ error: "Gagal merapikan artikel. Coba lagi." });
+  }
+});
+
 router.post("/drafts/:id/submit", requireAuth, async (req, res): Promise<void> => {
   const params = SubmitDraftParams.safeParse(req.params);
   if (!params.success) {

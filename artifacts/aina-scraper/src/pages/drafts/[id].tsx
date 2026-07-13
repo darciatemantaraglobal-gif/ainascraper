@@ -53,6 +53,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from 'sonner';
+import { ReformatDialog, type ReformatResult } from '@/components/ReformatDialog';
+import { Sparkles } from 'lucide-react';
 import { Markdown } from '@/components/Markdown';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
@@ -65,6 +67,7 @@ const updateDraftSchema = z.object({
 });
 
 export default function DraftDetailPage() {
+  const [reformatOpen, setReformatOpen] = useState(false);
   const [_, params] = useRoute('/drafts/:id');
   const [__, setLocation] = useLocation();
   const id = params?.id;
@@ -131,6 +134,19 @@ export default function DraftDetailPage() {
   }
 
   const isEditable = draft.status === 'draft' || draft.status === 'rejected';
+
+  /**
+   * Terapkan hasil rapikan AI ke FORM (belum disimpan ke server).
+   * Kontributor tetap bisa mengedit lagi dan wajib menekan "Simpan".
+   * Ini disengaja: hasil AI harus lewat mata manusia dulu.
+   */
+  const applyReformat = (r: ReformatResult) => {
+    form.setValue('title', r.title, { shouldDirty: true });
+    form.setValue('content', r.content, { shouldDirty: true });
+    if (r.summary) form.setValue('summary', r.summary, { shouldDirty: true });
+    if (r.keywords) form.setValue('tags', r.keywords, { shouldDirty: true });
+    if (r.category) form.setValue('category', r.category, { shouldDirty: true });
+  };
 
   const handleSave = (values: z.infer<typeof updateDraftSchema>) => {
     if (!id) return;
@@ -269,6 +285,15 @@ export default function DraftDetailPage() {
               </AlertDialogContent>
             </AlertDialog>
             
+            <Button
+              variant="outline"
+              className="border-primary/40 text-primary hover:bg-primary/10"
+              onClick={() => setReformatOpen(true)}
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              Rapikan dengan AI
+            </Button>
+
             <Button 
               variant="outline" 
               onClick={form.handleSubmit(handleSave)}
@@ -497,6 +522,13 @@ export default function DraftDetailPage() {
         </div>
       </div>
       </Form>
+
+      <ReformatDialog
+        draftId={draft.id}
+        open={reformatOpen}
+        onOpenChange={setReformatOpen}
+        onApply={applyReformat}
+      />
 
       {/* Admin — Dialog Alasan Penolakan */}
       <AlertDialog open={adminRejectOpen} onOpenChange={setAdminRejectOpen}>
