@@ -1,0 +1,86 @@
+Kamu adalah senior TypeScript developer yang bekerja pada monorepo ini. Baca seluruh codebase sebelum mulai.
+
+KONTEKS TEKNIS YANG SUDAH ADA:
+- artifacts/api-server/src/routes/drafts.ts: POST /drafts/:id/approve sudah ada
+  Saat approve: insert ke knowledge_base dengan { title, content, source, status: "pending from scraper" }
+- lib/db/src/schema/knowledgeBase.ts: kolom id, title, content, source, status, created_at
+  Cek apakah kolom embedding sudah ada atau belum
+- artifacts/api-server/src/lib/scrapeUtils.ts: analyzeWithOpenRouter sudah ada, pakai sebagai referensi pola fetch ke OpenRouter
+- Env var OPENROUTER_API_KEY sudah ada
+
+TUGAS:
+
+1. Cek lib/db/src/schema/knowledgeBase.ts — jika kolom embedding (text, nullable) belum ada, tambahkan.
+   Juga tambahkan kolom chunk_index (integer, default 0) jika belum ada — untuk membedakan chunk dari artikel yang sama.
+   Jika sudah ada, skip.
+   Setelah ubah schema, jalankan: pnpm --filter @workspace/db run db:push
+
+2. Buat file baru artifacts/api-server/src/lib/contentProcessor.ts berisi:
+
+   function cleanText(text: string): string
+   - Hapus semua tag HTML: ganti <[^>]+> dengan ""
+   - Hapus karakter non-standar: hanya sisakan huruf, angka, tanda baca umum, spasi, newline
+   - Rapikan whitespace: ganti 3+ newline berturut → 2 newline, spasi ganda → spasi tunggal
+   - Trim hasil akhir
+   - Export fungsi ini
+
+   function toMarkdown(title: string, content: string): string
+   - Baris pertama: # {title}
+   - Pisah content by paragraf (split \n\n atau \n)
+   - Paragraf yang diawali angka+titik (1. 2. dst) → biarkan sebagai numbered list
+   - Paragraf yang diawali - atau * → biarkan sebagai bullet list
+   - Paragraf biasa → tulis apa adanya, pisahkan dengan baris kosong
+   - Return string Markdown lengkap
+   - Export fungsi ini
+
+   function chunkText(text: string, chunkSize = 1000, overlap = 100): string[]
+   - Split teks menjadi array chunk dengan ukuran maksimal chunkSize karakter
+   - Usahakan potong di batas kalimat (cari ". " atau "\n" terdekat sebelum chunkSize)
+   - Overlap: setiap chunk baru dimulai overlap karakter sebelum akhir chunk sebelumnya
+   - Jika teks lebih pendek dari chunkSize, return [text] (satu chunk saja)
+   - Export fungsi ini
+
+   async function generateEmbedding(text: string): Promise<string | null>
+   - POST ke https://openrouter.ai/api/v1/chat/completions
+   - Model: "text-embedding-ada-002" via OpenRouter — gunakan endpoint embeddings jika tersedia,
+     jika tidak tersedia di OpenRouter pakai model "openai/text-embedding-ada-002"
+   - Endpoint embeddings OpenRouter: POST https://openrouter.ai/api/v1/embeddings
+     body: { model: "openai/text-embedding-ada-002", input: text }
+   - Return JSON.stringify(response.data[0].embedding) — simpan sebagai string JSON
+   - Jika OPENROUTER_API_KEY tidak ada atau request gagal → return null (jangan throw)
+   - Timeout: 10 detik dengan AbortController
+   - Export fungsi ini
+
+3. Buat fungsi async processAndStoreArticle(knowledgeBaseId: string, title: string, content: string, source: string) di contentProcessor.ts:
+   - Jalankan cleanText(content) → teks bersih
+   - Jalankan toMarkdown(title, cleanText result) → teks markdown
+   - Jalankan chunkText(markdown result) → array of chunks
+   - Untuk setiap chunk (dengan index i):
+     a. Generate embedding: generateEmbedding(chunk) → bisa null
+     b. Jika i === 0: UPDATE baris knowledgeBaseId yang sudah ada
+        SET content = chunk, embedding = embeddingJson, status = "processed"
+     c. Jika i > 0: INSERT baris baru ke knowledge_base
+        { title: title + ` (${i+1})`, content: chunk, source, status: "processed", chunk_index: i, embedding: embeddingJson }
+   - Return { chunksCreated: chunks.length }
+   - Export fungsi ini
+
+4. Di artifacts/api-server/src/routes/drafts.ts, di endpoint POST /drafts/:id/approve:
+   - Setelah insert ke knowledge_base dan dapat ID baru (dari .returning())
+   - Panggil processAndStoreArticle(newKbId, existing.title, existing.content, source) secara async
+   - JANGAN await — jalankan di background agar response approve tidak lambat
+   - Tambahkan .catch(err => logger.error({ err }, "processAndStoreArticle gagal")) untuk handle error background
+   - Response approve tetap sama seperti sebelumnya — tidak berubah
+
+5. Di artifacts/aina-scraper/src/pages/knowledge-base.tsx:
+   - Cek halaman yang sudah ada
+   - Pastikan menampilkan daftar artikel dari GET /api/knowledge-base
+   - Tambahkan kolom/info "Chunks" jika chunk_index > 0 — tampilkan badge kecil "X chunks" di setiap artikel
+   - Jika halaman sudah lengkap dan hanya perlu info chunks, tambahkan saja badge itu
+   - Jika halaman masih kosong/stub, buat tampilan lengkap: daftar artikel dengan judul, sumber, status, tanggal
+
+PENTING:
+- processAndStoreArticle dijalankan fire-and-forget (tanpa await) — response API tidak boleh menunggu proses ini
+- Jangan ubah endpoint approve yang sudah ada selain menambahkan fire-and-forget call
+- Jangan ubah scrapeUtils.ts, cron.ts, auth.ts, users.ts, atau file sesi sebelumnya
+- Jika schema knowledgeBase sudah punya kolom embedding dan chunk_index, jangan tambahkan lagi
+- Setelah selesai jalankan tsc --noEmit untuk semua workspace, pastikan 0 error TypeScript

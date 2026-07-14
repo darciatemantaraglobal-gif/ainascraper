@@ -1,0 +1,57 @@
+Konteks: monorepo pnpm. API server ada di artifacts/api-server (Express 5, esbuild bundle,
+deploy ke Railway). DB layer di lib/db (drizzle + node-postgres + Supabase).
+Bug: POST /api/auth/login balas 500 di production (api.newsaina.sbs). Root cause belum pasti:
+bisa DB down, bisa session store (connect-pg-simple) gagal. Sekarang dua-duanya nyamar jadi
+500 generik yang sama. Perbaiki dengan urutan berikut. JANGAN ubah frontend.
+
+1. artifacts/api-server/src/routes/health.ts
+   - /healthz tetap dangkal (buat Railway healthcheck) TAPI tambahkan `SELECT 1` ke pool
+     dengan timeout 3 detik. Kalau DB gagal, balas 503 { status: "degraded", db: "down" }.
+   - Tambah endpoint BARU: GET /api/healthz/deep
+     Balas JSON diagnostik (TANPA membocorkan nilai secret apa pun, cuma boolean/angka):
+       {
+         db: { ok, latencyMs, error: <pg error code + message kalau gagal> },
+         tables: { scraper_users: <jumlah row atau null>, scraper_sessions: <ada/tidak> },
+         env: { SESSION_SECRET: <boolean>, SUPABASE_DB_URL: <boolean>,
+                SCRAPER_AUTHOR_ID: <boolean>, CORS_ORIGINS: <array>,
+                COOKIE_DOMAIN: <boolean>, dbHost: <hostname saja>, dbPort: <angka> },
+         node: { env, uptimeSec }
+       }
+     Endpoint ini boleh diakses publik HANYA kalau nggak ada CRON_SECRET; kalau CRON_SECRET
+     ada, wajib header `Authorization: Bearer <CRON_SECRET>`, selain itu 401.
+
+2. artifacts/api-server/src/routes/auth.ts — POST /auth/login
+   - Bungkus seluruh handler pakai try/catch.
+   - Query user: kalau db.select() throw, log err (termasuk err.code dari pg) lalu balas
+     503 { error: "Database tidak bisa diakses.", code: "DB_UNAVAILABLE" }. JANGAN 500 generik.
+   - PALING PENTING: bikin session NON-FATAL. Kalau req.session.regenerate() atau
+     req.session.save() error, JANGAN balas 500. Log warning, lalu tetap balas 200 dengan
+     { username, role, token: createToken(authed) } plus field `sessionPersisted: false`.
+     Alasannya: FE sudah pakai bearer token (lihat src/lib/auth-token.ts + AuthContext),
+     jadi session cookie cuma jalur kedua dan nggak boleh menjatuhkan login.
+   - Tetap 401 untuk kredensial salah, jangan bocorin username ada/tidak.
+
+3. artifacts/api-server/src/lib/session.ts
+   - ensureSessionTable(): kalau CREATE TABLE gagal, JANGAN bikin proses exit. Log error
+     level "error", set flag `sessionStoreReady = false` yang di-export, dan biarkan server
+     tetap listen (auth masih jalan lewat bearer token). Tampilkan flag ini di /healthz/deep.
+   - Tambah opsi `errorLog: (err) => logger.error({ err }, "session store error")` ke PgSession
+     supaya kegagalan store nggak lagi diam-diam.
+
+4. artifacts/api-server/src/index.ts — preflight startup
+   - Sebelum listen, log SATU baris ringkas: db host, db port, ssl on/off, NODE_ENV,
+     dan boolean tiap env wajib. Kalau db port = 6543, log WARNING eksplisit:
+     "Transaction Pooler terdeteksi — connect-pg-simple butuh Session Pooler (port 5432)".
+
+5. artifacts/api-server/src/app.ts — error handler
+   - Sertakan `err.code` (pg error code) dan `req.id` di log.
+   - Di response production, tetap generik TAPI tambahkan `requestId` supaya bisa dicocokkan
+     dengan log Railway.
+
+6. Tambah script baru: artifacts/api-server/src/reset-admin.ts (masukkan ke entryPoints
+   build.mjs sebagai "src/reset-admin") yang meng-upsert user admin:
+   username & password dibaca dari env ADMIN_USERNAME / ADMIN_PASSWORD, hash pakai
+   bcryptjs cost 12, role "admin". Dipakai kalau row user-nya yang rusak.
+
+Setelah selesai: jalankan `pnpm --filter @workspace/api-server run typecheck` dan `run build`
+sampai bersih. Tulis ringkasan langkah manual yang harus gue lakukan di Railway.

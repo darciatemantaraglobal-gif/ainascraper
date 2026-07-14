@@ -1,6 +1,22 @@
 export type CustomFetchOptions = RequestInit & {
   responseType?: "json" | "text" | "blob" | "auto";
+  /** Batas waktu request (ms). Default 120 detik — scrape Instagram bisa lama. */
+  timeoutMs?: number;
 };
+
+/**
+ * Error jaringan / timeout — BUKAN respons HTTP dari server.
+ * Dibedakan dari ApiError supaya UI bisa memberi pesan yang tepat
+ * ("koneksi bermasalah" vs "server menolak").
+ */
+export class NetworkError extends Error {
+  readonly name = "NetworkError";
+  readonly status = 0;
+  constructor(message: string, readonly cause?: unknown) {
+    super(message);
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
 
 export type ErrorType<T = unknown> = ApiError<T>;
 
@@ -327,7 +343,7 @@ export async function customFetch<T = unknown>(
   options: CustomFetchOptions = {},
 ): Promise<T> {
   input = applyBaseUrl(input);
-  const { responseType = "auto", headers: headersInit, ...init } = options;
+  const { responseType = "auto", headers: headersInit, timeoutMs = 120_000, ...init } = options;
 
   const method = resolveMethod(input, init.method);
 
@@ -360,7 +376,41 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  // BUG FIX KRITIS: tanpa credentials:"include", browser TIDAK PERNAH mengirim
+  // cookie session ke origin yang berbeda (FE vercel.app -> BE railway.app).
+  // Akibatnya login "berhasil" tapi /auth/me selalu 401 dan user ke-redirect
+  // balik ke /login terus-menerus.
+  const credentials = init.credentials ?? "include";
+
+  // Timeout. Tanpa ini, request yang menggantung (mis. scrape Instagram yang
+  // menunggu Apify sampai 90 detik, atau server yang tidak merespons) membuat
+  // spinner berputar SELAMANYA tanpa pesan error apa pun.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(input, {
+      ...init,
+      method,
+      headers,
+      credentials,
+      signal: init.signal ?? controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if ((err as Error).name === "AbortError") {
+      throw new NetworkError(
+        "Permintaan terlalu lama (timeout). Coba lagi, atau periksa koneksi kamu.",
+        err,
+      );
+    }
+    throw new NetworkError(
+      "Tidak bisa terhubung ke server. Periksa koneksi internet kamu.",
+      err,
+    );
+  }
+  clearTimeout(timer);
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);

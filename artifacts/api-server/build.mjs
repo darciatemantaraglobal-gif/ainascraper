@@ -5,122 +5,61 @@ import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
 import { rm } from "node:fs/promises";
 
-// Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
+const isProduction = process.env.NODE_ENV === "production";
 
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
-    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+    // CATATAN: api/index.ts (handler Vercel serverless) sengaja dihapus.
+    //   - scrapeInstagramPost() menunggu Apify hingga 90 detik -> lewat batas
+    //     eksekusi fungsi Vercel.
+    //   - /drafts/:id/approve menjalankan processAndStoreArticle() fire-and-forget;
+    //     di serverless proses dibunuh begitu response terkirim, jadi pipeline
+    //     embedding tidak pernah selesai.
+    //   - pg.Pool baru tiap invocation -> connection storm ke Supabase.
+    // API server ini HARUS long-lived (Railway / Render / Fly / VPS).
+    //
+    // entryPoints memakai bentuk OBJEK, bukan array. Dengan array, esbuild
+    // menghitung common-base dari daftar entry — menambah/menghapus satu entry
+    // diam-diam menggeser output (dist/src/index.mjs -> dist/index.mjs) dan
+    // start command langsung "Cannot find module". Bentuk objek mengunci nama
+    // output secara eksplisit.
+    entryPoints: {
+      "src/index": path.resolve(artifactDir, "src/index.ts"),
+      "src/seed": path.resolve(artifactDir, "src/seed.ts"),
+    },
     platform: "node",
+    target: "node22",
     bundle: true,
     format: "esm",
     outdir: distDir,
     outExtension: { ".js": ".mjs" },
+    minify: isProduction,
+    sourcemap: isProduction ? "linked" : true,
     logLevel: "info",
-    // Some packages may not be bundleable, so we externalize them, we can add more here as needed.
-    // Some of the packages below may not be imported or installed, but we're adding them in case they are in the future.
-    // Examples of unbundleable packages:
-    // - uses native modules and loads them dynamically (e.g. sharp)
-    // - use path traversal to read files (e.g. @google-cloud/secret-manager loads sibling .proto files)
-    external: [
-      "*.node",
-      "sharp",
-      "better-sqlite3",
-      "sqlite3",
-      "canvas",
-      "bcrypt",
-      "argon2",
-      "fsevents",
-      "re2",
-      "farmhash",
-      "xxhash-addon",
-      "bufferutil",
-      "utf-8-validate",
-      "ssh2",
-      "cpu-features",
-      "dtrace-provider",
-      "isolated-vm",
-      "lightningcss",
-      "pg-native",
-      "oracledb",
-      "mongodb-client-encryption",
-      "nodemailer",
-      "handlebars",
-      "knex",
-      "typeorm",
-      "protobufjs",
-      "onnxruntime-node",
-      "@tensorflow/*",
-      "@prisma/client",
-      "@mikro-orm/*",
-      "@grpc/*",
-      "@swc/*",
-      "@aws-sdk/*",
-      "@azure/*",
-      "@opentelemetry/*",
-      "@google-cloud/*",
-      "@google/*",
-      "googleapis",
-      "firebase-admin",
-      "@parcel/watcher",
-      "@sentry/profiling-node",
-      "@tree-sitter/*",
-      "aws-sdk",
-      "classic-level",
-      "dd-trace",
-      "ffi-napi",
-      "grpc",
-      "hiredis",
-      "kerberos",
-      "leveldown",
-      "miniflare",
-      "mysql2",
-      "newrelic",
-      "odbc",
-      "piscina",
-      "realm",
-      "ref-napi",
-      "rocksdb",
-      "sass-embedded",
-      "sequelize",
-      "serialport",
-      "snappy",
-      "tinypool",
-      "usb",
-      "workerd",
-      "wrangler",
-      "zeromq",
-      "zeromq-prebuilt",
-      "playwright",
-      "puppeteer",
-      "puppeteer-core",
-      "electron",
-    ],
-    sourcemap: "linked",
-    plugins: [
-      // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it
-      esbuildPluginPino({ transports: ["pino-pretty"] })
-    ],
-    // Make sure packages that are cjs only (e.g. express) but are bundled continue to work in our esm output file
+    // Shim require() untuk dependency CJS (express, debug, dll) di output ESM.
     banner: {
-      js: `import { createRequire as __bannerCrReq } from 'node:module';
-import __bannerPath from 'node:path';
-import __bannerUrl from 'node:url';
-
-globalThis.require = __bannerCrReq(import.meta.url);
-globalThis.__filename = __bannerUrl.fileURLToPath(import.meta.url);
-globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
-    `,
+      js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
     },
+    plugins: [esbuildPluginPino({ transports: ["pino-pretty"] })],
+    external: [
+      "pg-native",
+      "better-sqlite3",
+      "mysql",
+      "mysql2",
+      "oracledb",
+      "tedious",
+      "pg-query-stream",
+    ],
   });
 }
 
-buildAll().catch((err) => {
-  console.error(err);
+buildAll().catch((e) => {
+  console.error(e);
   process.exit(1);
 });

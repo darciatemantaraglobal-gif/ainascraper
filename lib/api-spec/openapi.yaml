@@ -3,20 +3,34 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: AINA Knowledge Scraper v2 API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: drafts
+    description: Draft articles
+  - name: scrape
+    description: Content scraping & AI processing
+  - name: stats
+    description: Statistics & productivity
+  - name: users
+    description: User management (admin only)
+  - name: knowledge-base
+    description: Approved knowledge base articles
+  - name: cron
+    description: Automation settings & logs
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +38,497 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ── Auth ────────────────────────────────────────────────────────────────
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login with username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Invalid credentials
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout current session
+      responses:
+        "200":
+          description: Logged out
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Not authenticated
+
+  # ── Drafts ───────────────────────────────────────────────────────────────
+  /drafts:
+    get:
+      operationId: listDrafts
+      tags: [drafts]
+      summary: List drafts (contributor sees own, admin sees all)
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, submitted, approved, rejected]
+        - name: source_type
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: List of drafts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DraftList"
+
+    post:
+      operationId: createDraft
+      tags: [drafts]
+      summary: Create a new draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DraftInput"
+      responses:
+        "201":
+          description: Draft created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+
+  /drafts/{id}:
+    get:
+      operationId: getDraft
+      tags: [drafts]
+      summary: Get a single draft
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Draft detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+        "404":
+          description: Not found
+
+    patch:
+      operationId: updateDraft
+      tags: [drafts]
+      summary: Update a draft
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DraftUpdate"
+      responses:
+        "200":
+          description: Updated draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+
+    delete:
+      operationId: deleteDraft
+      tags: [drafts]
+      summary: Delete a draft
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /drafts/{id}/submit:
+    post:
+      operationId: submitDraft
+      tags: [drafts]
+      summary: Submit draft for admin review
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Draft submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+
+  /drafts/{id}/approve:
+    post:
+      operationId: approveDraft
+      tags: [drafts]
+      summary: Approve draft and push to knowledge base (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Draft approved and moved to knowledge base
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+
+  /drafts/{id}/reject:
+    post:
+      operationId: rejectDraft
+      tags: [drafts]
+      summary: Reject a draft with a reason (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectInput"
+      responses:
+        "200":
+          description: Draft rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+
+  # ── Scrape / AI Processing ───────────────────────────────────────────────
+  /scrape/url:
+    post:
+      operationId: scrapeUrl
+      tags: [scrape]
+      summary: Scrape article from URL and process with AI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScrapeUrlInput"
+      responses:
+        "200":
+          description: Processed draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+
+  /scrape/manual:
+    post:
+      operationId: scrapeManual
+      tags: [scrape]
+      summary: Process manually pasted text with AI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScrapeManualInput"
+      responses:
+        "200":
+          description: Processed draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+
+  /scrape/pdf:
+    post:
+      operationId: scrapePdf
+      tags: [scrape]
+      summary: Extract and process text from PDF (base64 encoded)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScrapePdfInput"
+      responses:
+        "200":
+          description: Processed draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+
+  /scrape/instagram:
+    post:
+      operationId: scrapeInstagram
+      tags: [scrape]
+      summary: Scrape Instagram post via URL and OCR image text
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScrapeInstagramInput"
+      responses:
+        "200":
+          description: Processed draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Draft"
+
+  # ── Stats ────────────────────────────────────────────────────────────────
+  /stats/personal:
+    get:
+      operationId: getPersonalStats
+      tags: [stats]
+      summary: Get personal productivity stats for current contributor
+      responses:
+        "200":
+          description: Personal stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonalStats"
+
+  /stats/team:
+    get:
+      operationId: getTeamStats
+      tags: [stats]
+      summary: Get team-wide stats (admin only)
+      responses:
+        "200":
+          description: Team stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamStats"
+
+  /stats/leaderboard:
+    get:
+      operationId: getLeaderboard
+      tags: [stats]
+      summary: Get top contributors leaderboard
+      responses:
+        "200":
+          description: Leaderboard
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeaderboardEntry"
+
+  # ── Users ────────────────────────────────────────────────────────────────
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List all users (admin only)
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create a new user account (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserInput"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{username}:
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update user role or reset password (admin only)
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+    delete:
+      operationId: deleteUser
+      tags: [users]
+      summary: Delete a user account (admin only)
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  # ── Knowledge Base ────────────────────────────────────────────────────────
+  /knowledge-base:
+    get:
+      operationId: listKnowledgeBase
+      tags: [knowledge-base]
+      summary: List approved knowledge base articles
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Knowledge base articles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBaseList"
+
+  # ── Cron / Automation ─────────────────────────────────────────────────────
+  /cron/logs:
+    get:
+      operationId: getCronLogs
+      tags: [cron]
+      summary: Get cron job execution logs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Cron logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CronLog"
+
+  /cron/settings:
+    get:
+      operationId: getCronSettings
+      tags: [cron]
+      summary: Get cron job settings and subscribed URLs
+      responses:
+        "200":
+          description: Cron settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CronSettings"
+
+    patch:
+      operationId: updateCronSettings
+      tags: [cron]
+      summary: Update cron settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CronSettingsUpdate"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CronSettings"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +539,317 @@ components:
       required:
         - status
 
+    # ── Auth ──────────────────────────────────────────────────────────────
+    LoginInput:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
+    AuthUser:
+      type: object
+      required: [username, role]
+      properties:
+        username:
+          type: string
+        role:
+          type: string
+          enum: [contributor, admin]
+
+    # ── Draft ─────────────────────────────────────────────────────────────
+    Draft:
+      type: object
+      required: [id, title, content, status, submitted_by, created_at, source_type, relevance_score]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        summary:
+          type: ["string", "null"]
+        tags:
+          type: ["string", "null"]
+        category:
+          type: ["string", "null"]
+        source_url:
+          type: ["string", "null"]
+        source_type:
+          type: string
+          enum: [url, manual, pdf, instagram, auto]
+        relevance_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        status:
+          type: string
+          enum: [draft, submitted, approved, rejected]
+        submitted_by:
+          type: string
+        rejection_reason:
+          type: ["string", "null"]
+        created_at:
+          type: string
+          format: date-time
+
+    DraftList:
+      type: object
+      required: [data, total, page, limit]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Draft"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    DraftInput:
+      type: object
+      required: [title, content, source_type]
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        summary:
+          type: string
+        tags:
+          type: string
+        category:
+          type: string
+        source_url:
+          type: string
+        source_type:
+          type: string
+          enum: [url, manual, pdf, instagram, auto]
+        relevance_score:
+          type: integer
+
+    DraftUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        summary:
+          type: string
+        tags:
+          type: string
+        category:
+          type: string
+
+    RejectInput:
+      type: object
+      required: [rejection_reason]
+      properties:
+        rejection_reason:
+          type: string
+
+    # ── Scrape inputs ──────────────────────────────────────────────────────
+    ScrapeUrlInput:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+        additional_context:
+          type: string
+
+    ScrapeManualInput:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+        title:
+          type: string
+
+    ScrapePdfInput:
+      type: object
+      required: [filename, content_base64]
+      properties:
+        filename:
+          type: string
+        content_base64:
+          type: string
+
+    ScrapeInstagramInput:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+
+    # ── Stats ─────────────────────────────────────────────────────────────
+    PersonalStats:
+      type: object
+      required: [total_submitted, today_submitted, this_month_submitted, daily_target, daily_progress_pct, mission_completed]
+      properties:
+        total_submitted:
+          type: integer
+        today_submitted:
+          type: integer
+        this_month_submitted:
+          type: integer
+        daily_target:
+          type: integer
+        daily_progress_pct:
+          type: integer
+        mission_completed:
+          type: boolean
+
+    TeamStats:
+      type: object
+      required: [total_drafts, total_approved, pending_review, today_approved, avg_daily_input, top_contributors]
+      properties:
+        total_drafts:
+          type: integer
+        total_approved:
+          type: integer
+        pending_review:
+          type: integer
+        today_approved:
+          type: integer
+        avg_daily_input:
+          type: number
+        top_contributors:
+          type: array
+          items:
+            $ref: "#/components/schemas/LeaderboardEntry"
+
+    LeaderboardEntry:
+      type: object
+      required: [username, count]
+      properties:
+        username:
+          type: string
+        count:
+          type: integer
+        rank:
+          type: integer
+
+    # ── Users ─────────────────────────────────────────────────────────────
+    User:
+      type: object
+      required: [username, role]
+      properties:
+        username:
+          type: string
+        role:
+          type: string
+          enum: [contributor, admin]
+        total_drafts:
+          type: integer
+        daily_target:
+          type: integer
+
+    UserInput:
+      type: object
+      required: [username, password, role]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum: [contributor, admin]
+        daily_target:
+          type: integer
+
+    UserUpdate:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [contributor, admin]
+        password:
+          type: string
+        daily_target:
+          type: integer
+
+    # ── Knowledge Base ────────────────────────────────────────────────────
+    KnowledgeBaseArticle:
+      type: object
+      required: [id, title, content, category, status, has_embedding]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        category:
+          type: string
+        status:
+          type: string
+        has_embedding:
+          type: boolean
+
+    KnowledgeBaseList:
+      type: object
+      required: [data, total, page, limit]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeBaseArticle"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    # ── Cron ─────────────────────────────────────────────────────────────
+    CronLog:
+      type: object
+      required: [id, ran_at, status, articles_scraped, error_message]
+      properties:
+        id:
+          type: string
+        ran_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [success, error, partial]
+        articles_scraped:
+          type: integer
+        error_message:
+          type: ["string", "null"]
+
+    CronSettings:
+      type: object
+      required: [enabled, target_urls, run_at]
+      properties:
+        enabled:
+          type: boolean
+        target_urls:
+          type: array
+          items:
+            type: string
+        run_at:
+          type: string
+          description: "Cron time e.g. '08:00'"
+
+    CronSettingsUpdate:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        target_urls:
+          type: array
+          items:
+            type: string
+        run_at:
+          type: string
