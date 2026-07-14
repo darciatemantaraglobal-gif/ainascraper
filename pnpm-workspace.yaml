@@ -158,3 +158,10 @@ overrides:
   # drizzle-kit uses esbuild internally on an older version that's vulnerable, this overrides it
   "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
   esbuild: "0.27.3"
+
+# pnpm >=10 blocks postinstall/build scripts by default (supply-chain
+# defense). esbuild needs its postinstall to fetch the right platform
+# binary — without this, `pnpm install` in Docker fails with
+# ERR_PNPM_IGNORED_BUILDS and the Railway build never completes.
+allowBuilds:
+  esbuild: true
