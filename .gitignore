@@ -44,22 +44,6 @@ Thumbs.db
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
-# ---------------------------------------------------------------------------
-# SECRETS — jangan pernah di-commit
-# ---------------------------------------------------------------------------
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-secrets.json
-
 # Replit
-.replit.local
-.upm/
-.breakpoints
-venv/
-
-# Replit (cache)
 .cache/
 .local/
