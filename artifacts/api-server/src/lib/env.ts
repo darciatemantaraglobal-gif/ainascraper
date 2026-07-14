@@ -48,13 +48,6 @@ export const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || undefined;
 export const TOKEN_TTL_SECONDS = Number(process.env.TOKEN_TTL_SECONDS ?? 7 * 24 * 60 * 60);
 
 /**
- * Dipakai untuk melindungi endpoint tanpa session auth (cron trigger,
- * /healthz/deep). Sengaja opsional — kalau kosong, endpoint terkait
- * jatuh ke perilaku default masing-masing (lihat pemakainya).
- */
-export const CRON_SECRET = process.env.CRON_SECRET || undefined;
-
-/**
  * UUID penulis untuk artikel yang masuk ke knowledge_base dari scraper.
  *
  * Kolom `author_id` di knowledge_base bersifat NOT NULL tanpa default, jadi

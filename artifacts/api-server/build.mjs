@@ -32,7 +32,6 @@ async function buildAll() {
     entryPoints: {
       "src/index": path.resolve(artifactDir, "src/index.ts"),
       "src/seed": path.resolve(artifactDir, "src/seed.ts"),
-      "src/reset-admin": path.resolve(artifactDir, "src/reset-admin.ts"),
     },
     platform: "node",
     target: "node22",

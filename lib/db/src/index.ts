@@ -3,9 +3,6 @@ import pg from "pg";
 import * as schema from "./schema";
 import { resolveDbConfig } from "./config";
 
-export { resolveDbConfig, describeDbConfig, needsSsl } from "./config";
-export type { DbConfig, DbDiagnostics } from "./config";
-
 const { Pool } = pg;
 
 /**

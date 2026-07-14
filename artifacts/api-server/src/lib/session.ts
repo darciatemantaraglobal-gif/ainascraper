@@ -35,32 +35,19 @@ CREATE INDEX IF NOT EXISTS "IDX_${TABLE_NAME}_expire" ON "${TABLE_NAME}" ("expir
 `;
 
 /**
- * Flag yang menandakan tabel session berhasil disiapkan. Dibaca oleh
- * /healthz/deep supaya kegagalan store tidak lagi diam-diam — dan dibaca
- * oleh auth.ts untuk memutuskan apakah boleh mencoba session sama sekali.
- */
-let sessionTableReady = false;
-
-export function sessionStoreReady(): boolean {
-  return sessionTableReady;
-}
-
-/**
  * Dipanggil sekali saat startup, SEBELUM server mulai listen.
  *
  * SENGAJA tidak melempar error ke pemanggil: kalau CREATE TABLE gagal (mis.
  * DB down saat boot), server tetap harus bisa listen dan menjawab request —
  * auth masih jalan lewat bearer token walau session cookie tidak akan
- * pernah persist. `sessionTableReady` tetap false, dan itu terlihat di
- * /healthz/deep.
+ * pernah persist, daripada seluruh server ikut mati (process.exit) gara-gara
+ * session store doang.
  */
 export async function ensureSessionTable(): Promise<void> {
   try {
     await pool.query(CREATE_TABLE_SQL);
-    sessionTableReady = true;
     logger.info({ table: TABLE_NAME }, "Session store siap");
   } catch (err) {
-    sessionTableReady = false;
     logger.error({ err, table: TABLE_NAME }, "Gagal menyiapkan session store — auth tetap jalan lewat bearer token");
   }
 }
