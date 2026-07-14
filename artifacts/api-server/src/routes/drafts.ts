@@ -17,7 +17,7 @@ import { requireAuth, requireAdmin } from "../middlewares/auth";
 import { processAndStoreArticle } from "../lib/contentProcessor";
 import { classifyKbCategory } from "../lib/scrapeUtils";
 import { reformatForAina, REFORMAT_STYLES, type ReformatStyle } from "../lib/reformat";
-import { SCRAPER_AUTHOR_ID } from "../lib/env";
+import { getScraperAuthorId } from "../lib/env";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -274,7 +274,7 @@ router.post("/drafts/:id/approve", requireAdmin, async (req, res): Promise<void>
     [newKbEntry] = await db
       .insert(knowledgeBaseTable)
       .values({
-        authorId: SCRAPER_AUTHOR_ID,
+        authorId: getScraperAuthorId(),
         title: existing.title,
         content: existing.content,
         category,

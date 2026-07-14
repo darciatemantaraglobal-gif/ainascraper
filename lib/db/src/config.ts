@@ -57,3 +57,37 @@ export function resolveDbConfig(): DbConfig {
 
   return { connectionString, ssl: needsSsl(connectionString) };
 }
+
+export interface DbDiagnostics {
+  configured: boolean;
+  host: string | null;
+  port: number | null;
+  ssl: boolean | null;
+}
+
+/**
+ * Sama seperti resolveDbConfig(), tapi TIDAK PERNAH throw dan TIDAK PERNAH
+ * membocorkan credential — cuma host/port/ssl. Dipakai di endpoint
+ * diagnostik (/healthz/deep) dan log startup, yang harus tetap jalan
+ * walau connection string belum di-set.
+ */
+export function describeDbConfig(): DbDiagnostics {
+  const connectionString =
+    process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? "";
+
+  if (!connectionString) {
+    return { configured: false, host: null, port: null, ssl: null };
+  }
+
+  try {
+    const url = new URL(connectionString);
+    return {
+      configured: true,
+      host: url.hostname,
+      port: url.port ? Number(url.port) : 5432,
+      ssl: needsSsl(connectionString),
+    };
+  } catch {
+    return { configured: true, host: null, port: null, ssl: null };
+  }
+}

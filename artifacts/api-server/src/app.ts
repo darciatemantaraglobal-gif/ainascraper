@@ -81,8 +81,11 @@ app.use("/api", (_req: Request, res: Response) => {
 
 // Error handler terpusat. Express 5 otomatis meneruskan rejected promise ke sini,
 // jadi route async yang throw tidak lagi menggantung tanpa response.
-app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-  req.log?.error({ err }, "Unhandled error");
+app.use((err: Error & { code?: string }, req: Request, res: Response, _next: NextFunction) => {
+  // req.id dicatat supaya bisa dicocokkan dengan requestId di response
+  // production — pgCode diangkat ke permukaan (bukan ketimbun di stack)
+  // supaya error DB kelihatan langsung di log tanpa buka full trace.
+  req.log?.error({ err, pgCode: err.code, requestId: req.id }, "Unhandled error");
 
   if (res.headersSent) return;
 
@@ -93,6 +96,7 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
 
   res.status(500).json({
     error: isProduction ? "Terjadi kesalahan pada server." : err.message,
+    requestId: req.id,
   });
 });
 
